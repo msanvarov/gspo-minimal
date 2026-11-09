@@ -10,15 +10,17 @@ GRPO weights every token by its own importance ratio — but the reward being
 corrected for was assigned to the *whole sequence*. GSPO removes the mismatch:
 one length-normalized ratio per sequence, clipped at sequence granularity.
 
-```
-s_i(θ) = ( π_θ(y_i|x) / π_old(y_i|x) ) ^ (1/|y_i|)
-J(θ)   = E[ (1/G) Σ_i min( s_i·A_i , clip(s_i, 1-ε, 1+ε)·A_i ) ]
-A_i    = (r_i - mean(r)) / std(r)              # group-relative, no critic
+```math
+\begin{aligned}
+s_i(\theta) &= \left( \frac{\pi_\theta(y_i \mid x)}{\pi_{\text{old}}(y_i \mid x)} \right)^{1/|y_i|} \\
+J(\theta) &= \mathbb{E}\left[ \frac{1}{G} \sum_{i=1}^{G} \min\big( s_i A_i,\ \operatorname{clip}(s_i, 1-\varepsilon, 1+\varepsilon)\, A_i \big) \right] \\
+A_i &= \frac{r_i - \operatorname{mean}(r)}{\operatorname{std}(r)} && \text{group-relative, no critic}
+\end{aligned}
 ```
 
-That `1/|y_i|` exponent makes `s_i` a **geometric mean** of the token ratios, so
-it tightens like `1/√T` as sequences get longer rather than compounding. This is
-why the paper's clip range is `ε = 3e-4 / 4e-4` and not GRPO's `0.2` — and why
+That $1/|y_i|$ exponent makes $s_i$ a **geometric mean** of the token ratios, so
+it tightens like $1/\sqrt{T}$ as sequences get longer rather than compounding. This is
+why the paper's clip range is $\varepsilon = 3 \times 10^{-4}$ / $4 \times 10^{-4}$ and not GRPO's $0.2$ — and why
 GSPO survives MoE training, where expert routing shifts between rollout and
 update make individual token ratios wildly unstable.
 
@@ -48,9 +50,9 @@ Three objectives are provided:
 
 | function | ratio | use |
 |---|---|---|
-| `gspo_loss` | `s_i` per sequence | the paper's main objective |
-| `gspo_token_loss` | `s_{i,t} = sg[s_i] · π_θ(y_t)/sg[π_θ(y_t)]` | identical gradient to `gspo_loss`; exists so you can pass **per-token** advantages |
-| `grpo_loss` | `π_θ(y_t)/π_old(y_t)` per token | GRPO baseline, for comparison |
+| `gspo_loss` | $s_i$ per sequence | the paper's main objective |
+| `gspo_token_loss` | $s_{i,t} = \operatorname{sg}[s_i] \cdot \pi_\theta(y_t) / \operatorname{sg}[\pi_\theta(y_t)]$ | identical gradient to `gspo_loss`; exists so you can pass **per-token** advantages |
+| `grpo_loss` | $\pi_\theta(y_t) / \pi_{\text{old}}(y_t)$ per token | GRPO baseline, for comparison |
 
 `group_advantages` returns exact zeros for a group where every rollout scored
 the same — the paper's formula divides by a near-zero std there.
@@ -64,15 +66,15 @@ python train.py       # GSPO vs GRPO on a verifiable task, ~20s
 
 What the checks pin down:
 
-- **`s_i = 1` at the old policy**, and `s_i = exp(c)` for a constant per-token
-  log-ratio `c` at T = 4, 64 and 4096 — length normalization really is length-invariant
-- **why ε is 3e-4** — under iid token noise, GSPO's sequence ratio spread shrinks
-  16x going from T=16 to T=4096 (`√(4096/16) = 16`), while GRPO's token ratios keep
+- **$s_i = 1$ at the old policy**, and $s_i = e^{c}$ for a constant per-token
+  log-ratio $c$ at $T$ = 4, 64 and 4096 — length normalization really is length-invariant
+- **why $\varepsilon$ is $3 \times 10^{-4}$** — under iid token noise, GSPO's sequence ratio spread shrinks
+  16x going from T=16 to T=4096 ($\sqrt{4096/16} = 16$), while GRPO's token ratios keep
   the same spread at every length and leave GSPO's clip range >90% of the time
 - **GSPO-token ≡ GSPO** — identical loss *and* identical gradients to 1e-6 when
   advantages are per-sequence, which is the paper's stated reason the variant is safe
-- **clipping bites on both sides** — `s > 1+ε` with `A > 0`, and `s < 1-ε` with
-  `A < 0`, both drive the gradient to exactly zero
+- **clipping bites on both sides** — $s > 1+\varepsilon$ with $A > 0$, and $s < 1-\varepsilon$ with
+  $A < 0$, both drive the gradient to exactly zero
 - masked padding cannot move the loss; a zero-spread group produces no signal
 
 `train.py` learns a verifiable task (emit the prompt digit L times) from group

@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GSPO — interactive demo</title>
+<meta name="description" content="Interactive demo of Group Sequence Policy Optimization: why a length-normalized sequence ratio lets GSPO clip at 3e-4 instead of GRPO's 0.2.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:false})"></script>
+<style>
+:root{
+  --bg:#fbfaf7; --panel:#ffffff; --ink:#1b1c1f; --muted:#62656d; --line:#e4e2dc;
+  --accent:#2f5bd3; --accent-2:#d0582f; --good:#1f8a5b; --warn:#b7791f;
+  --code-bg:#f2f0ea;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#111216; --panel:#181a20; --ink:#e8e8ea; --muted:#9a9ca5; --line:#2a2d35;
+    --accent:#7b9cff; --accent-2:#ff8a5c; --good:#4fd18f; --warn:#e8b04a;
+    --code-bg:#1f2229;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+main{max-width:1080px;margin:0 auto;padding:40px 16px 80px}
+a{color:var(--accent)}
+code{overflow-wrap:anywhere}
+header .kicker{font:600 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+header h1{font-size:clamp(26px,4vw,38px);line-height:1.15;margin:10px 0 8px;letter-spacing:-.01em}
+header .cite{color:var(--muted);margin:0 0 4px}
+header .links{display:flex;gap:16px;flex-wrap:wrap;font-size:14px;margin-top:8px}
+.lede{font-size:17px;max-width:72ch;margin:24px 0}
+.eq .katex-display{margin:.4em 0}
+.eq{font-size:15px;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;margin:16px 0}
+section.demo{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;margin:28px 0}
+section.demo h2{font-size:19px;margin:0 0 4px}
+section.demo > p.sub{color:var(--muted);margin:0 0 16px;max-width:75ch}
+.grid{display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:start}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+.controls{display:flex;flex-direction:column;gap:14px}
+.ctl label{display:block;position:relative;padding-right:5.5em;font-size:13px;color:var(--muted);margin-bottom:4px}
+.ctl label output{position:absolute;right:0;top:0;font-family:var(--mono);color:var(--ink)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+select,button,input[type=text],input[type=number]{font:inherit;font-size:14px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+button{cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.viz{min-width:0}
+canvas,svg.chart{display:block;width:100%;height:auto;max-width:100%}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-top:14px}
+.stat{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.stat .k{font-size:12px;color:var(--muted)}
+.stat .v{font:600 18px/1.3 var(--mono)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.caption{font-size:13px;color:var(--muted);margin-top:8px}
+.scope{color:var(--muted);font-size:14px;max-width:75ch}
+.scope h2{color:var(--ink);font-size:17px}
+footer{color:var(--muted);font-size:13px;margin-top:48px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="kicker">Paper recreation · interactive demo</div>
+  <h1>Group Sequence Policy Optimization</h1>
+  <p class="cite">Zheng et al., Qwen Team, Alibaba — <a href="https://arxiv.org/abs/2507.18071">arXiv:2507.18071</a></p>
+  <div class="links"><a href="https://github.com/msanvarov/gspo-minimal">Source: msanvarov/gspo-minimal</a></div>
+</header>
+
+<p class="lede">GSPO is the RL post-training objective behind Qwen3. GRPO weights every token by its own importance ratio, but the reward it corrects for was given to the <em>whole sequence</em>. GSPO uses one length-normalized ratio per sequence and clips at that level. The ratio \(s_i\) is a geometric mean of the token ratios, so it tightens as responses get longer instead of compounding. That is why its clip range is \(\varepsilon \approx 3\times10^{-4}\) rather than GRPO's \(0.2\).</p>
+<div class="eq">\[
+\begin{aligned}
+s_i(\theta) &= \left(\frac{\pi_\theta(y_i \mid x)}{\pi_{\text{old}}(y_i \mid x)}\right)^{1/|y_i|}
+  = \exp\!\Big(\frac{1}{|y_i|}\sum_{t=1}^{|y_i|} \log\frac{\pi_\theta(y_{i,t} \mid x, y_{i,&lt;t})}{\pi_{\text{old}}(y_{i,t} \mid x, y_{i,&lt;t})}\Big) \\
+J(\theta) &= \mathbb{E}\Big[\frac{1}{G}\sum_{i=1}^{G} \min\big(s_i A_i,\; \operatorname{clip}(s_i,\, 1-\varepsilon_{\text{low}},\, 1+\varepsilon_{\text{high}})\, A_i\big)\Big] \\
+A_i &= \frac{r_i - \operatorname{mean}(r)}{\operatorname{std}(r)} \qquad \text{(group-relative, no critic)}
+\end{aligned}
+\]
+\[ \varepsilon_{\text{low}} = 3\times10^{-4},\quad \varepsilon_{\text{high}} = 4\times10^{-4} \qquad \text{vs. GRPO: } \varepsilon = 0.2 \text{ on each token ratio } \frac{\pi_\theta(y_t)}{\pi_{\text{old}}(y_t)} \]</div>
+
+<section class="demo" id="d1">
+  <h2>1 · Why \(\varepsilon\) is \(3\times10^{-4}\)</h2>
+  <p class="sub">Each token gets an independent log-ratio drawn from \(\mathcal{N}(0, \sigma^2)\), the same noise model as <code>test_gspo.py</code>. GRPO clips each token ratio. GSPO clips one ratio per sequence, the exponential of the mean log-ratio, so its spread shrinks like \(\sigma/\sqrt{T}\). Drag T and watch the GSPO histogram narrow while GRPO's stays the same width.</p>
+  <div class="grid">
+    <div class="controls">
+      <div class="ctl"><label for="T">sequence length \(T\) <output for="T"></output></label>
+        <input id="T" type="range" min="4" max="12" step="0.25" value="8" data-fmt="Math.round(2**v)"></div>
+      <div class="ctl"><label for="sigma">per-token log-ratio noise \(\sigma\) <output for="sigma"></output></label>
+        <input id="sigma" type="range" min="-3" max="-0.5" step="0.05" value="-1" data-fmt="(10**v).toPrecision(2)"></div>
+      <div class="ctl"><label for="eps">\(\varepsilon_{\text{low}}\) (\(\varepsilon_{\text{high}} = \tfrac43\varepsilon_{\text{low}}\)) <output for="eps"></output></label>
+        <input id="eps" type="range" min="-4" max="-0.7" step="any" value="-3.5229" data-fmt="(10**v).toExponential(1)"></div>
+      <div class="ctl"><label for="N">sequences sampled <output for="N"></output></label>
+        <input id="N" type="range" min="6" max="11" step="1" value="10" data-fmt="2**v"></div>
+      <div class="ctl"><label for="zoom">x-axis</label>
+        <select id="zoom"><option value="grpo">fit GRPO token ratios</option><option value="gspo">fit GSPO sequence ratios</option></select></div>
+      <button id="reseed">Resample noise</button>
+    </div>
+    <div class="viz">
+      <canvas id="hist" aria-label="Histograms of GRPO token ratios and GSPO sequence ratios with the clip band shaded"></canvas>
+      <div class="legend"><span><i style="background:var(--accent-2)"></i>GRPO token ratios \(\pi_\theta/\pi_{\text{old}}\)</span><span><i style="background:var(--accent)"></i>GSPO sequence ratio \(s_i\)</span><span><i style="background:var(--good);opacity:.35"></i>GSPO clip band \([1-\varepsilon_{\text{low}},\, 1+\varepsilon_{\text{high}}]\)</span></div>
+      <div class="stats" id="s1"></div>
+      <h3 style="font-size:15px;margin:22px 0 4px">Ratio spread vs. length</h3>
+      <canvas id="spread" aria-label="Standard deviation of ratios versus sequence length"></canvas>
+      <div class="legend"><span><i style="background:var(--accent-2)"></i>GRPO token ratio std (flat)</span><span><i style="background:var(--accent)"></i>GSPO sequence ratio std (sampled)</span><span><i style="background:var(--muted)"></i>\(\sigma/\sqrt{T}\) reference</span></div>
+      <p class="caption" id="cap1"></p>
+    </div>
+  </div>
+</section>
+
+<section class="demo" id="d2">
+  <h2>2 · Group-relative advantages</h2>
+  <p class="sub">GSPO has no critic. It samples \(G\) responses to the same prompt, and each response's advantage is its reward standardized against the group. Set the rewards below. If every response scores the same, the group carries no signal and the advantages are exactly zero, which is what <code>group_advantages</code> returns instead of dividing by a near-zero std.</p>
+  <div class="grid">
+    <div class="controls">
+      <div class="ctl"><label for="G">group size \(G\) <output for="G"></output></label>
+        <input id="G" type="range" min="2" max="12" step="1" value="6"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button data-preset="random">Random</button><button data-preset="one">One correct</button><button data-preset="equal">All equal</button>
+      </div>
+      <div id="rewards" class="controls"></div>
+    </div>
+    <div class="viz">
+      <canvas id="adv" aria-label="Bar chart of rewards and advantages per rollout"></canvas>
+      <div class="legend"><span><i style="background:var(--muted)"></i>reward \(r_i\)</span><span><i style="background:var(--accent)"></i>\(A_i &gt; 0\) (pushed up)</span><span><i style="background:var(--accent-2)"></i>\(A_i &lt; 0\) (pushed down)</span></div>
+      <div class="stats" id="s2"></div>
+    </div>
+  </div>
+</section>
+
+<section class="demo" id="d3">
+  <h2>3 · Clipping, on both sides</h2>
+  <p class="sub">The per-sequence objective \(\min\big(sA,\ \operatorname{clip}(s)\,A\big)\) as a function of \(s\). Once a sequence's ratio leaves the trust region in the direction its advantage pushes, the objective goes flat and its gradient is exactly zero (shaded). That sequence stops contributing until the next rollout.</p>
+  <div class="grid">
+    <div class="controls">
+      <div class="ctl"><label for="eps3">\(\varepsilon_{\text{low}}\) (\(\varepsilon_{\text{high}} = \tfrac43\varepsilon_{\text{low}}\)) <output for="eps3"></output></label>
+        <input id="eps3" type="range" min="-4" max="-0.7" step="any" value="-3.5229" data-fmt="(10**v).toExponential(1)"></div>
+      <div class="ctl"><label for="Aval">\(|A|\) <output for="Aval"></output></label>
+        <input id="Aval" type="range" min="0.1" max="2" step="0.1" value="1"></div>
+    </div>
+    <div class="viz">
+      <canvas id="clipA" aria-label="Objective versus ratio for a positive advantage"></canvas>
+      <p class="caption">\(A &gt; 0\): increasing \(s\) helps until \(s = 1+\varepsilon_{\text{high}}\), then the gradient is zero.</p>
+      <canvas id="clipB" aria-label="Objective versus ratio for a negative advantage"></canvas>
+      <p class="caption">\(A &lt; 0\): decreasing \(s\) helps until \(s = 1-\varepsilon_{\text{low}}\), then the gradient is zero.</p>
+    </div>
+  </div>
+</section>
+
+<section class="scope">
+  <h2>What this demo simplifies</h2>
+  <p>This page covers the objective only. The token log-ratios are iid Gaussian noise, a toy stand-in for real policy drift, so the histograms show how ratios scale with length, not how a trained policy behaves. There is no rollout engine, no policy model, and no MoE. The paper's headline result is that GSPO removes the need for Routing Replay when training MoE models with RL, and that cannot be shown here. The repo's <code>train.py</code> runs the full loop on a tiny verifiable task in about 20 seconds.</p>
+</section>
+
+<footer>Everything on this page runs in your browser in plain JavaScript — a small-scale re-run of the mechanism in the repo's PyTorch code, not the trained model.</footer>
+</main>
+
+<script>
+// ---- shared helpers (keep identical across the five demos) ----
+function rng(seed){ // mulberry32
+  let a = seed >>> 0;
+  const u = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  u.normal = () => { let x = 0; while (x === 0) x = u(); return Math.sqrt(-2 * Math.log(x)) * Math.cos(2 * Math.PI * u()); };
+  return u;
+}
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+// Crisp canvas sized to its CSS width; returns 2d ctx and logical size.
+function setupCanvas(cv, aspect){
+  const w = cv.clientWidth || cv.parentElement.clientWidth, h = Math.round(w * aspect), d = devicePixelRatio || 1;
+  cv.width = w * d; cv.height = h * d; cv.style.height = h + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(d, 0, 0, d, 0, 0); return { ctx, w, h };
+}
+// Sequential colormap 0..1 (light->accent). Diverging: pass {diverging:true} for -1..1.
+function color(v, opts = {}){
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const bg = dark ? [24,26,32] : [255,255,255];
+  const a = dark ? [123,156,255] : [47,91,211], b = dark ? [255,138,92] : [208,88,47];
+  let c = a, t = v;
+  if (opts.diverging){ c = v < 0 ? b : a; t = Math.abs(v); }
+  t = Math.max(0, Math.min(1, t));
+  return `rgb(${bg.map((x,i)=>Math.round(x + (c[i]-x)*t)).join(',')})`;
+}
+function heatmap(ctx, M, x, y, w, h, opts = {}){
+  const R = M.length, C = M[0].length, cw = w / C, ch = h / R;
+  for (let i = 0; i < R; i++) for (let j = 0; j < C; j++){
+    const v = M[i][j]; if (v === null || Number.isNaN(v)) continue;
+    ctx.fillStyle = color(v, opts); ctx.fillRect(x + j*cw, y + i*ch, Math.ceil(cw), Math.ceil(ch));
+  }
+  ctx.strokeStyle = css('--line'); ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+}
+// Line chart. series: [{data:[[x,y],...], color, label, dash}]. opts: {logY, yMin, yMax, xLabel, yLabel}
+function lineChart(cv, series, opts = {}){
+  const { ctx, w, h } = setupCanvas(cv, opts.aspect || 0.45), pad = { l: 48, r: 12, t: 10, b: 30 };
+  ctx.clearRect(0, 0, w, h);
+  const tf = v => opts.logY ? Math.log10(Math.max(v, 1e-12)) : v;
+  const xs = series.flatMap(s => s.data.map(p => p[0])), ys = series.flatMap(s => s.data.map(p => tf(p[1])));
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y0 = opts.yMin !== undefined ? tf(opts.yMin) : Math.min(...ys), y1 = opts.yMax !== undefined ? tf(opts.yMax) : Math.max(...ys);
+  const X = v => pad.l + (v - x0) / ((x1 - x0) || 1) * (w - pad.l - pad.r);
+  const Y = v => h - pad.b - (tf(v) - y0) / ((y1 - y0) || 1) * (h - pad.t - pad.b);
+  ctx.font = '11px ' + css('--mono'); ctx.fillStyle = css('--muted'); ctx.strokeStyle = css('--line');
+  for (let k = 0; k <= 4; k++){
+    const yv = y0 + (y1 - y0) * k / 4, py = h - pad.b - k / 4 * (h - pad.t - pad.b);
+    ctx.beginPath(); ctx.moveTo(pad.l, py); ctx.lineTo(w - pad.r, py); ctx.stroke();
+    const lab = opts.logY ? (p => p < 1e-3 || p >= 1e4 ? p.toExponential(0) : String(+p.toPrecision(2)))(10 ** yv) : (Math.abs(yv) >= 100 ? yv.toFixed(0) : yv.toPrecision(3));
+    ctx.textAlign = 'right'; ctx.fillText(lab, pad.l - 6, py + 4);
+  }
+  ctx.textAlign = 'center';
+  for (let k = 0; k <= 4; k++){ const xv = x0 + (x1 - x0) * k / 4; ctx.fillText(+xv.toPrecision(3), X(xv), h - pad.b + 16); }
+  if (opts.xLabel) ctx.fillText(opts.xLabel, (pad.l + w - pad.r) / 2, h - 2);
+  for (const s of series){
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
+    ctx.beginPath(); s.data.forEach((p, i) => i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.stroke();
+  }
+  ctx.setLineDash([]); ctx.lineWidth = 1;
+  return { X, Y, ctx, w, h, pad };
+}
+function setStats(el, items){ // items: [[label, value], ...]
+  el.innerHTML = items.map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+}
+// Bind a range input to its <output> and a callback. Usage: <input id=x type=range> <output for=x>
+function bind(id, fn){
+  const el = document.getElementById(id), out = document.querySelector(`output[for="${id}"]`);
+  const f = el.dataset.fmt ? new Function('v', 'return ' + el.dataset.fmt) : v => v;
+  const go = () => { if (out) out.textContent = f(+el.value); fn(); };
+  el.addEventListener('input', go); if (out) out.textContent = f(+el.value);
+  return () => +el.value;
+}
+let __raf = 0; const schedule = fn => { cancelAnimationFrame(__raf); __raf = requestAnimationFrame(fn); };
+addEventListener('resize', () => window.render && schedule(window.render));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => window.render && window.render());
+// ---- end shared helpers ----
+</script>
+<script>
+// ---- core (mirrors gspo.py; mask is all ones here) ----
+function seqLogRatio(lr){ let s = 0; for (let t = 0; t < lr.length; t++) s += lr[t]; return s / lr.length; }
+function groupAdvantages(r, eps = 1e-6){
+  const n = r.length, m = r.reduce((a, b) => a + b, 0) / n;
+  const sd = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / n); // unbiased=False
+  return r.map(x => sd > eps ? (x - m) / (sd + eps) : 0);
+}
+const clip = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+const gspoObjective = (s, A, el, eh) => Math.min(s * A, clip(s, 1 - el, 1 + eh) * A);
+function std(a){ let m = 0; for (const x of a) m += x; m /= a.length; let v = 0; for (const x of a) v += (x - m) ** 2; return Math.sqrt(v / a.length); }
+// N sequences of T iid N(0, sigma^2) token log-ratios.
+// Returns GSPO sequence ratios, a sample of GRPO token ratios, and the token-ratio std over all tokens.
+function simulate(N, T, sigma, seed, keep = 20000){
+  const u = rng(seed), seq = new Float64Array(N), tok = [], lr = new Float64Array(T);
+  let s1 = 0, s2 = 0;
+  for (let i = 0; i < N; i++){
+    for (let t = 0; t < T; t++){
+      lr[t] = sigma * u.normal();
+      const w = Math.exp(lr[t]); s1 += w; s2 += w * w;
+      if (tok.length < keep) tok.push(w);
+    }
+    seq[i] = Math.exp(seqLogRatio(lr));
+  }
+  const n = N * T, m = s1 / n;
+  return { seq, tok, tokStd: Math.sqrt(Math.max(0, s2 / n - m * m)) };
+}
+// ---- end core ----
+
+const withAlpha = (c, a) => { const h = c.replace('#', ''); const n = parseInt(h.length === 3 ? h.replace(/./g, '$&$&') : h, 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+const pct = x => (100 * x).toFixed(1) + '%';
+const fmt = x => x === 0 ? '0' : Math.abs(x) < 1e-3 ? x.toExponential(2) : x.toPrecision(3);
+
+const getT = bind('T', () => schedule(render)), getSigma = bind('sigma', () => schedule(render));
+const getEps = bind('eps', () => schedule(render)), getN = bind('N', () => schedule(render));
+document.getElementById('zoom').addEventListener('change', () => schedule(render));
+let seed = 1;
+document.getElementById('reseed').addEventListener('click', () => { seed++; schedule(render); });
+
+const cache = {};
+function memo(key, f){
+  if (!(key in cache) && Object.keys(cache).length > 40) for (const k in cache) delete cache[k]; // bound memory while dragging
+  return cache[key] ??= f();
+}
+
+// ---------- demo 1 ----------
+const SPREAD_T = [16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
+function drawHist(sim, el, eh){
+  const cv = document.getElementById('hist'), { ctx, w, h } = setupCanvas(cv, 0.42);
+  const pad = { l: 12, r: 12, t: 8, b: 30 }, rowH = (h - pad.t - pad.b) / 2;
+  const zoomGspo = document.getElementById('zoom').value === 'gspo';
+  const R = 4 * (zoomGspo ? std(sim.seq) : sim.tokStd) || 1e-3;
+  const X = v => pad.l + (v + R) / (2 * R) * (w - pad.l - pad.r);
+  ctx.clearRect(0, 0, w, h);
+  // clip band
+  // keep the band at least 2px wide so it stays visible when zoomed out
+  let bx0 = Math.max(pad.l, X(-el)), bx1 = Math.min(w - pad.r, X(eh));
+  if (bx1 - bx0 < 2){ const m = (bx0 + bx1) / 2; bx0 = m - 1; bx1 = m + 1; }
+  ctx.fillStyle = withAlpha(css('--good'), 0.22);
+  ctx.fillRect(bx0, pad.t, bx1 - bx0, 2 * rowH);
+  const rows = [[sim.tok, css('--accent-2'), 'GRPO tokens'], [sim.seq, css('--accent'), 'GSPO sequences']];
+  const B = 90;
+  rows.forEach(([vals, col, label], r) => {
+    const counts = new Array(B).fill(0); let off = 0;
+    for (const v of vals){ const k = Math.floor((v - 1 + R) / (2 * R) * B); if (k >= 0 && k < B) counts[k]++; else off++; }
+    const mx = Math.max(...counts) || 1, y0 = pad.t + (r + 1) * rowH, bw = (w - pad.l - pad.r) / B;
+    ctx.fillStyle = col;
+    counts.forEach((c, k) => { const bh = c / mx * (rowH - 18); ctx.fillRect(pad.l + k * bw, y0 - bh, Math.max(1, bw - 1), bh); });
+    ctx.fillStyle = css('--muted'); ctx.font = '12px ' + css('--sans'); ctx.textAlign = 'left';
+    ctx.fillText(label + (off ? `  (${pct(off / vals.length)} beyond axis)` : ''), pad.l + 4, y0 - rowH + 14);
+    ctx.strokeStyle = css('--line'); ctx.beginPath(); ctx.moveTo(pad.l, y0 + .5); ctx.lineTo(w - pad.r, y0 + .5); ctx.stroke();
+  });
+  ctx.fillStyle = css('--muted'); ctx.font = '11px ' + css('--mono'); ctx.textAlign = 'center';
+  for (let k = -2; k <= 2; k++){ const v = k * R / 2; ctx.fillText(k ? (v > 0 ? '+' : '') + v.toPrecision(2) : '0', X(v), h - pad.b + 16); }
+  ctx.fillText('ratio − 1', w / 2, h - 2);
+}
+
+function render(){
+  const T = Math.round(2 ** getT()), sigma = 10 ** getSigma(), el = 10 ** getEps(), eh = el * 4 / 3, N = 2 ** getN();
+  const sim = memo(`h${N},${T},${sigma},${seed}`, () => simulate(N, T, sigma, seed));
+  drawHist(sim, el, eh);
+  const out = v => v > 1 + eh || v < 1 - el;
+  const seqStd = std(sim.seq);
+  setStats(document.getElementById('s1'), [
+    ['GRPO tokens outside ε band', pct(sim.tok.filter(out).length / sim.tok.length)],
+    ['GSPO sequences outside ε band', pct(Array.from(sim.seq).filter(out).length / N)],
+    ['GRPO tokens outside its own 0.2', pct(sim.tok.filter(v => Math.abs(v - 1) >= 0.2).length / sim.tok.length)],
+    ['token ratio std', fmt(sim.tokStd)],
+    ['sequence ratio std', fmt(seqStd)],
+  ]);
+
+  // spread vs T (fixed 512 sequences per length so it doesn't depend on N)
+  const sp = memo(`s${sigma},${seed}`, () => SPREAD_T.map(t => { const s = simulate(512, t, sigma, seed + t, 4000); return [t, std(s.seq), s.tokStd]; }));
+  const c = lineChart(document.getElementById('spread'), [
+    { data: sp.map(([t, , k]) => [Math.log2(t), k]), color: css('--accent-2') },
+    { data: sp.map(([t]) => [Math.log2(t), sigma / Math.sqrt(t)]), color: css('--muted'), dash: [4, 4], width: 1.5 },
+    { data: sp.map(([t, s]) => [Math.log2(t), s]), color: css('--accent') },
+  ], { logY: true, xLabel: 'log₂ T   (4 = 16 tokens, 12 = 4096 tokens)', aspect: 0.4 });
+  // current T marker + clip band level
+  c.ctx.strokeStyle = css('--ink'); c.ctx.setLineDash([2, 3]);
+  c.ctx.beginPath(); c.ctx.moveTo(c.X(Math.log2(T)), c.pad.t); c.ctx.lineTo(c.X(Math.log2(T)), c.h - c.pad.b); c.ctx.stroke(); c.ctx.setLineDash([]);
+  const ratio = sp[0][1] / sp[sp.length - 1][1];
+  document.getElementById('cap1').textContent =
+    `GSPO's sequence-ratio spread falls ${ratio.toFixed(1)}× from T=16 to T=4096 (√(4096/16) = 16). GRPO's token-ratio spread stays at ${fmt(sp[0][2])} at every length. The dotted line marks the current T = ${T}.`;
+
+  renderAdv(); renderClip();
+}
+
+// ---------- demo 2 ----------
+let rewards = [1, 0, 0, 0.5, 1, 0];
+const getG = bind('G', () => { syncRewards(); renderAdv(); });
+function syncRewards(){
+  const G = getG();
+  while (rewards.length < G) rewards.push(Math.round(Math.random() * 20) / 20);
+  rewards.length = G;
+  document.getElementById('rewards').innerHTML = rewards.map((r, i) =>
+    `<div class="ctl"><label for="r${i}">r<sub>${i + 1}</sub> <output for="r${i}">${r.toFixed(2)}</output></label>
+     <input id="r${i}" type="range" min="0" max="1" step="0.05" value="${r}"></div>`).join('');
+  rewards.forEach((_, i) => bind('r' + i, () => { rewards[i] = +document.getElementById('r' + i).value; renderAdv(); }));
+}
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+  const G = getG(), p = b.dataset.preset;
+  rewards = Array.from({ length: G }, (_, i) => p === 'equal' ? 0.5 : p === 'one' ? +(i === 0) : Math.round(Math.random() * 20) / 20);
+  syncRewards(); renderAdv();
+}));
+function renderAdv(){
+  const A = groupAdvantages(rewards), G = rewards.length;
+  const { ctx, w, h } = setupCanvas(document.getElementById('adv'), 0.5);
+  const pad = { l: 40, r: 10, t: 10, b: 24 }, topH = (h - pad.t - pad.b) * 0.32, gap = 14;
+  const botT = pad.t + topH + gap, botH = h - pad.b - botT, cw = (w - pad.l - pad.r) / G, bw = Math.min(46, cw * 0.6);
+  const lim = Math.max(2.5, ...A.map(Math.abs)), Y0 = botT + botH / 2, Ys = v => Y0 - v / lim * (botH / 2);
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = '11px ' + css('--mono'); ctx.textAlign = 'right'; ctx.fillStyle = css('--muted');
+  ctx.fillText('r', pad.l - 8, pad.t + topH / 2 + 4); ctx.fillText('A', pad.l - 8, Y0 + 4);
+  [[lim, 10], [0, 4], [-lim, -2]].forEach(([v, dy]) => ctx.fillText(v.toFixed(1), pad.l - 8, Ys(v) + dy));
+  ctx.strokeStyle = css('--line'); ctx.beginPath(); ctx.moveTo(pad.l, Y0 + .5); ctx.lineTo(w - pad.r, Y0 + .5); ctx.stroke();
+  ctx.strokeRect(pad.l + .5, pad.t + .5, w - pad.l - pad.r - 1, topH);
+  ctx.textAlign = 'center';
+  rewards.forEach((r, i) => {
+    const cx = pad.l + (i + .5) * cw;
+    ctx.fillStyle = withAlpha(css('--muted'), 0.6); ctx.fillRect(cx - bw / 2, pad.t + topH - r * topH, bw, r * topH);
+    ctx.fillStyle = A[i] >= 0 ? css('--accent') : css('--accent-2');
+    const y = Ys(A[i]); ctx.fillRect(cx - bw / 2, Math.min(y, Y0), bw, Math.max(1, Math.abs(y - Y0)));
+    ctx.fillStyle = css('--ink'); ctx.fillText(A[i].toFixed(2), cx, A[i] >= 0 ? Math.min(y, Y0) - 4 : Math.max(y, Y0) + 12);
+    ctx.fillStyle = css('--muted'); ctx.fillText('#' + (i + 1), cx, h - 6);
+  });
+  const m = rewards.reduce((a, b) => a + b, 0) / G, sd = Math.sqrt(rewards.reduce((a, b) => a + (b - m) ** 2, 0) / G);
+  setStats(document.getElementById('s2'), [
+    ['mean reward', m.toFixed(3)], ['reward std', sd.toFixed(3)],
+    ['Σ A_i', fmt(A.reduce((a, b) => a + b, 0))],
+    ['group has signal?', sd > 1e-6 ? 'yes' : 'no: all A = 0'],
+  ]);
+}
+
+// ---------- demo 3 ----------
+const getEps3 = bind('eps3', renderClip), getAv = bind('Aval', renderClip);
+function renderClip(){
+  const el = 10 ** getEps3(), eh = el * 4 / 3, a = getAv(), span = 4 * eh;
+  for (const [id, A] of [['clipA', a], ['clipB', -a]]){
+    const xs = Array.from({ length: 401 }, (_, i) => -span + 2 * span * i / 400);
+    // both axes in units of ε_low (y also per |A|) so tick labels stay short at ε ~ 1e-4
+    const u = x => x / el, v = y => y / (el * Math.abs(A || 1));
+    const c = lineChart(document.getElementById(id), [
+      { data: xs.map(x => [u(x), v((1 + x) * A - A)]), color: css('--muted'), dash: [4, 4], width: 1.5 },
+      { data: xs.map(x => [u(x), v(gspoObjective(1 + x, A, el, eh) - A)]), color: A > 0 ? css('--accent') : css('--accent-2') },
+    ], { xLabel: 'x: (s − 1)/ε_low   y: (obj − A)/(|A|·ε_low)', aspect: 0.3 });
+    c.ctx.fillStyle = withAlpha(css('--warn'), 0.16);
+    const xa = A > 0 ? c.X(u(eh)) : c.pad.l, xb = A > 0 ? c.w - c.pad.r : c.X(u(-el));
+    c.ctx.fillRect(xa, c.pad.t, xb - xa, c.h - c.pad.t - c.pad.b);
+    c.ctx.fillStyle = css('--warn'); c.ctx.font = '12px ' + css('--sans'); c.ctx.textAlign = 'center';
+    c.ctx.fillText('gradient = 0', (xa + xb) / 2, c.pad.t + 16);
+  }
+}
+
+syncRewards();
+window.render = render;
+render();
+</script>
+</body>
+</html>
