@@ -6,6 +6,8 @@ behind Qwen3.
 > **Group Sequence Policy Optimization**
 > Zheng et al., Qwen Team, Alibaba — [arXiv:2507.18071](https://arxiv.org/abs/2507.18071)
 
+**Interactive demo:** <https://gspo-minimal.netlify.app>. Drag the sliders and watch the mechanism run in your browser.
+
 GRPO weights every token by its own importance ratio — but the reward being
 corrected for was assigned to the *whole sequence*. GSPO removes the mismatch:
 one length-normalized ratio per sequence, clipped at sequence granularity.
